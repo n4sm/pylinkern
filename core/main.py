@@ -39,7 +39,7 @@ def sread_memory(addr, length, pack_64=False):
     if pack_64:
         return int.from_bytes(inferior.read_memory(addr, length), 'little')
 
-    return int.from_bytes(inferior.read_memory(addr, length).tobytes().hex(), 'big')
+    return int.from_bytes(inferior.read_memory(addr, length), 'big')
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
