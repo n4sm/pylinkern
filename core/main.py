@@ -37,9 +37,9 @@ def sread_memory(addr, length, pack_64=False):
     if not inferior or not inferior.is_valid():
         return
     if pack_64:
-        return int(struct.pack("<Q", int(inferior.read_memory(addr, length).tobytes().hex(), 16)).hex(), 16)
+        return int.from_bytes(inferior.read_memory(addr, length), 'little')
 
-    return int(inferior.read_memory(addr, length).tobytes().hex(), 16)
+    return int.from_bytes(inferior.read_memory(addr, length).tobytes().hex(), 'big')
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
