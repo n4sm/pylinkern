@@ -338,18 +338,6 @@ def chunk_from_addr(addr: int) -> list:
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
-def kmemcache_from_slabcaches(addr: int) -> int:
-    """
-    returns the address of the the kmem_cache from which the slab caches belong.
-    """
-    offset_slab_caches = [f.bitpos for f in gdb.lookup_type("struct kmem_cache").fields() if f.name == "list"][0] // 8
-    # offset of slab_caches in kmem_cache
-
-    return addr - offset_slab_caches
-
-def next_kmem_cache(kmem_cache: int) -> int:
-    return kmem_cache['list']['next']
-
 def all_kmem_cache(l=[]) -> list:
     kmalloc_c_type = gdb.lookup_type(f'struct kmem_cache').pointer()
     slab_caches_t = gdb.lookup_type(f'struct list_head').pointer()
@@ -367,61 +355,63 @@ def all_kmem_cache(l=[]) -> list:
             return l
         return all_kmem_cache(l)
 
-def new_kmalloc_caches() -> list:
-    s = gdb.execute(f'p/d sizeof(kmalloc_caches) / 8', to_string=True)
-    m = int(s[s.find('=')+1:])
-    sum = 0
-    k = 0
-    empty_cache = []
+# We keep this code, who knows ?
 
-    while sum < m:
-        s = gdb.execute(f'p/d sizeof(kmalloc_caches[{k}]) / 8', to_string=True)
-        p = int(s[s.find('=')+1:])
-        empty_cache.append([0 for i in range(p)])
-        sum += p
-        k += 1
+# def new_kmalloc_caches() -> list:
+#     s = gdb.execute(f'p/d sizeof(kmalloc_caches) / 8', to_string=True)
+#     m = int(s[s.find('=')+1:])
+#     sum = 0
+#     k = 0
+#     empty_cache = []
 
-    return empty_cache
+#     while sum < m:
+#         s = gdb.execute(f'p/d sizeof(kmalloc_caches[{k}]) / 8', to_string=True)
+#         p = int(s[s.find('=')+1:])
+#         empty_cache.append([0 for i in range(p)])
+#         sum += p
+#         k += 1
 
-def kmem_cache_list() -> list:
-    kmalloc_caches = new_kmalloc_caches()
+#     return empty_cache
+
+# def kmem_cache_list() -> list:
+#     kmalloc_caches = new_kmalloc_caches()
     
-    kmalloc_c = gdb.lookup_global_symbol('kmalloc_caches').value()
-    kmalloc_c_type = gdb.lookup_type(f'struct kmem_cache').pointer().pointer().pointer()
-    kmalloc_c.cast(kmalloc_c_type)
+#     kmalloc_c = gdb.lookup_global_symbol('kmalloc_caches').value()
+#     kmalloc_c_type = gdb.lookup_type(f'struct kmem_cache').pointer().pointer().pointer()
+#     kmalloc_c.cast(kmalloc_c_type)
 
-    for i in range(len(kmalloc_caches)):
-        for k in range(len(kmalloc_caches[0])):
-            kmalloc_caches[i][k] = kmalloc_c[i][k].cast(gdb.lookup_type('struct kmem_cache').pointer())
+#     for i in range(len(kmalloc_caches)):
+#         for k in range(len(kmalloc_caches[0])):
+#             kmalloc_caches[i][k] = kmalloc_c[i][k].cast(gdb.lookup_type('struct kmem_cache').pointer())
 
-    return kmalloc_caches
+#     return kmalloc_caches
 
-def display_kmem_cache():
-    kmalloc_caches = kmem_cache_list()
-    kmem_cache_t = gdb.lookup_type('struct kmem_cache').pointer()
-    print("Support for 5.8.7 kernel only !")
+# def display_kmem_cache():
+#     kmalloc_caches = kmem_cache_list()
+#     kmem_cache_t = gdb.lookup_type('struct kmem_cache').pointer()
+#     print("Support for 5.8.7 kernel only !")
 
-    if len(kmalloc_caches) >= 1:
-        kmalloc_normal = kmalloc_caches[0]
-        print("=-= KMALLOC_NORMAL")
-        for kmem_cache in kmalloc_normal[1:]:
-            kmem_cache = kmem_cache.cast(kmem_cache_t)
-            s = f"[{kmem_cache['name'].string()}]: \t{hex(kmem_cache.address)}"
-            print(s)
-    if len(kmalloc_caches) >= 2:
-        kmalloc_reclaim = kmalloc_caches[1]
-        print("=-= KMALLOC_RECLAIM")
-        for kmem_cache in kmalloc_reclaim[1:]:
-            kmem_cache = kmem_cache.cast(kmem_cache_t)
-            s = f"[{kmem_cache['name'].string()}]: \t{hex(kmem_cache.address)}"
-            print(s)
-    if len(kmalloc_caches) >= 3:
-        kmalloc_dma = kmalloc_caches[1]
-        print("=-= KMALLOC_DMA")
-        for kmem_cache in kmalloc_dma[1:]:
-            kmem_cache = kmem_cache.cast(kmem_cache_t)
-            s = f"[{kmem_cache['name'].string()}]: \t{hex(kmem_cache.address)}"
-            print(s)
+#     if len(kmalloc_caches) >= 1:
+#         kmalloc_normal = kmalloc_caches[0]
+#         print("=-= KMALLOC_NORMAL")
+#         for kmem_cache in kmalloc_normal[1:]:
+#             kmem_cache = kmem_cache.cast(kmem_cache_t)
+#             s = f"[{kmem_cache['name'].string()}]: \t{hex(kmem_cache.address)}"
+#             print(s)
+#     if len(kmalloc_caches) >= 2:
+#         kmalloc_reclaim = kmalloc_caches[1]
+#         print("=-= KMALLOC_RECLAIM")
+#         for kmem_cache in kmalloc_reclaim[1:]:
+#             kmem_cache = kmem_cache.cast(kmem_cache_t)
+#             s = f"[{kmem_cache['name'].string()}]: \t{hex(kmem_cache.address)}"
+#             print(s)
+#     if len(kmalloc_caches) >= 3:
+#         kmalloc_dma = kmalloc_caches[1]
+#         print("=-= KMALLOC_DMA")
+#         for kmem_cache in kmalloc_dma[1:]:
+#             kmem_cache = kmem_cache.cast(kmem_cache_t)
+#             s = f"[{kmem_cache['name'].string()}]: \t{hex(kmem_cache.address)}"
+#             print(s)
 
 class kheap(GenericCommand):
     """kernel linux heap stuff."""
