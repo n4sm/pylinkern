@@ -20,6 +20,10 @@ SLAB_DEACTIVATED = 0x10000000
 __CMPXCHG_DOUBLE = 0x40000000
 __OBJECT_POISON	 = 0x80000000
 
+SLAB_CPU_ACTIVE = 0x0
+SLAB_NODE = 0x1
+SLAB_CPU_PARTIAL = 0x2
+
 def is_set(flags, flag, s_flags=""):
     if flags & flag and len(s_flags):
         print(f" {s_flags} ", end='')
@@ -41,15 +45,21 @@ def sread_memory(addr, length, pack_64=False):
 
     return int.from_bytes(inferior.read_memory(addr, length), 'big')
 
+def kmemcache_from_chunk(chunk):
+    return chunk_from_addr(chunk)[1]    
+
+def pagedesc_from_chunk(chunk):
+    return chunk_from_addr(chunk)[2]
+
+def is_allocated(chunk):
+    return chunk in freelist_slab(kmemcache_from_chunk(chunk), pagedesc_from_chunk(chunk))
+
 # =-=-=-=-=-=-=-=-=-=-=-=
 
 def dump_page_node(page):
-    list_head_t = gdb.lookup_type(f'struct list_head').pointer()
-    ulong_ptr_t = gdb.lookup_type('unsigned long').pointer()
-    short_t = gdb.lookup_type('short').pointer()
-    base_address = int(page.address)
-
-    # print(f"next: {gdb.Value(base_address + offset_of('lru', 'struct page'))}")
+    """
+    returns informations about a node slab onto the page descriptor
+    """
 
     """
         struct page \{
@@ -63,7 +73,8 @@ def dump_page_node(page):
         \}
     """
 
-    s = f"struct page @ {page}" +  " {\n"
+    s = "--=-=-= kmem_cache.node.partial =-=-=--\n"
+    s += f"struct page @ {page}" +  " {\n"
     s += f"\t.flags = {page['flags']},\n"
     s += f"\t.frozen = {page['frozen']},\n"
     s += f"\t.inuse = {page['inuse']},\n"
@@ -74,14 +85,13 @@ def dump_page_node(page):
     s += "\t},"
     s += "}"
 
-def dump_page_cpu(page):
-    list_head_t = gdb.lookup_type(f'struct list_head').pointer()
-    slab_cache_t = gdb.lookup_type(f'struct kmem_cache').pointer()
-    ulong_ptr_t = gdb.lookup_type('unsigned long').pointer()
-    short_t = gdb.lookup_type('short').pointer()
-    base_address = int(page)
+def dump_pagecpu_active(page):
+    """
+    returns informations about a node slab onto the page descriptor
+    """
 
-    s =  f"struct page @ {page}" +  " {\n"
+    s = "--=-=-= kmem_cache.cpu_slab.page =-=-=--\n"
+    s +=  f"struct page @ {page}" +  " {\n"
     s += f"\t.flags = {page['flags']},\n"
     s += f"\t.inuse = {page['inuse']},\n"
     s += f"\t.frozen = {page['frozen']},\n"
@@ -108,6 +118,7 @@ def info_kmemcache(mem):
     kmem_cache_t = gdb.lookup_type(f'struct kmem_cache').pointer()
     kmem_cache = gdb.Value(mem).cast(kmem_cache_t)
 
+    print("--=-=-= kmem_cache =-=-=--")
     print(f"Name: {kmem_cache['name'].string()}")
     print(f"Objsize: {kmem_cache['inuse']}")
     print(f"Objsize with metadata: {kmem_cache['size']}")
@@ -115,7 +126,7 @@ def info_kmemcache(mem):
     print(f"Flags: ", end='')
     flags_kmemcache(kmem_cache)
     print("")
-    print(f"Free Pointer offt: {kmem_cache['offset']}")
+    print(f"offset: {kmem_cache['offset']}")
     print(f"cpu_slab @ {kmem_cache['cpu_slab']}")
 
     if kmem_cache['red_left_pad']:
@@ -129,9 +140,10 @@ def info_slab_cpu(cpu):
     kmem_cache_cpu_t = gdb.lookup_type(f'struct kmem_cache_cpu').pointer()
     cpu = gdb.Value(cpu).cast(kmem_cache_cpu_t)
 
+    print("--=-=-= kmem_cache.cpu_slab =-=-=--")
     print(f"kmem_cache_cpu @ {cpu}")
     print(f"tid: {cpu['tid']}")
-    dump_page_cpu(cpu['page'])
+    print(dump_pagecpu_active(cpu['page']))
 
     if is_enabled('CONFIG_SLUB_CPU_PARTIAL'):
         print(f"partial: {cpu['partial']}")
@@ -146,7 +158,6 @@ class kfreeBP(gdb.Breakpoint):
     def stop(self):
         rdi = int(gdb.parse_and_eval("$rdi").cast(gdb.lookup_type('unsigned long')))
         print(hex(rdi))
-        # parse_chunk(rdi)
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
@@ -162,8 +173,16 @@ def offset_of(member: str, s_type: str) -> int:
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
-def in_cpuslab(cpu_slab, chunk: int) -> bool:
-    list_head_t = gdb.lookup_type(f'struct list_head').pointer()
+def in_cpuslab_active(cpu_slab, chunk: int) -> bool:
+    if not int(cpu_slab['freelist']):
+        return False
+
+    if (int(cpu_slab['freelist']) & ~0xfff) != (chunk & ~0xfff):
+        return False
+
+    return True
+
+def in_cpuslab_partial(cpu_slab, chunk: int) -> bool:
     page_t = gdb.lookup_type(f'struct page').pointer()
     ulong_t = gdb.lookup_type('unsigned long')
 
@@ -176,14 +195,10 @@ def in_cpuslab(cpu_slab, chunk: int) -> bool:
                 nxt = gdb.Value(nxt['next'])
                 continue
             return nxt
+    
+    return False
 
-    if not int(cpu_slab['freelist']):
-        return False
-
-    if (int(cpu_slab['freelist']) & ~0xfff) != (chunk & ~0xfff):
-        return False
-
-    return True
+# =-=-=-=-=-=-=-=-=-=
 
 def in_node(node, chunk: int):
     list_head_t = gdb.lookup_type(f'struct list_head').pointer()
@@ -221,7 +236,6 @@ def in_node(node, chunk: int):
 
 def freelist_slab(kmem_cache, page_slab) -> list:
     if is_enabled("CONFIG_SLAB_FREELIST_HARDENED"):
-        print("lol")
         return -1
 
     freelist = []
@@ -230,31 +244,36 @@ def freelist_slab(kmem_cache, page_slab) -> list:
     while fp:
         freelist.append(fp)
         fp = sread_memory(int(fp) + int(kmem_cache['offset']), 8, pack_64=True)
-    
+
     return freelist
 
 # =-=-=-=-=-=-=-=-=-=
 
-def chunk_metadata(chunk, kmem_cache):
+def free_chunk(chunk, kmem_cache):
     t = int(kmem_cache['inuse'])
     curr_color = colorama.Fore.BLUE
 
-    if not is_set(kmem_cache['flags'], SLAB_POISON) and not is_set(kmem_cache['flags'], SLAB_RED_ZONE) and not is_set(kmem_cache['flags'], __OBJECT_POISON) and not is_set(kmem_cache['flags'], SLAB_STORE_USER):        
+    if not is_set(kmem_cache['flags'], SLAB_POISON) and not is_set(kmem_cache['flags'], SLAB_RED_ZONE) and not is_set(kmem_cache['flags'], __OBJECT_POISON) and not is_set(kmem_cache['flags'], SLAB_STORE_USER):
         for i in range(0, t, 8):
             if i is int(kmem_cache['offset']):
                 curr_color = colorama.Fore.WHITE
 
             if not i % 16:
-                print(f"{hex(chunk+i*2)}:  {curr_color + '0x{0:0{1}x}'.format(sread_memory(chunk+i, length=0x8, pack_64=True), 16) + colorama.Fore.RESET}  ", end='')
+                print(f"{hex(chunk+i)}:  {curr_color + '0x{0:0{1}x}'.format(sread_memory(chunk+i, length=0x8, pack_64=True), 16) + colorama.Fore.RESET}  ", end='')
             elif i % 16:
-                print(f"{curr_color + '0x{0:0{1}X}'.format(sread_memory(chunk+i, length=0x8, pack_64=True), 16) + colorama.Fore.RESET}")
+                print(f"{curr_color + '0x{0:0{1}x}'.format(sread_memory(chunk+i, length=0x8, pack_64=True), 16) + colorama.Fore.RESET}")
             curr_color = colorama.Fore.BLUE
     else:
-        # for i in range(0, t, 8):
-        #         if i % 16:
-        #             print(f"{hex(chunk)}:  {colorama.Fore.BLUE + '0x{0:0{1}X}'.format(hex(read_chunk(chunk+i, length=0x8)), 8) + colorama.Fore.RESET}  ", end='')
-        #         elif not i % 16:
-        #             print(f"{colorama.Fore.BLUE + '0x{0:0{1}X}'.format(hex(read_addr(addr+i, length=0x8)), 8) + colorama.Fore.RESET}")
+        print("Not supported for now")
+
+def alloc_chunk(chunk, kmem_cache):
+    if not is_set(kmem_cache['flags'], SLAB_POISON) and not is_set(kmem_cache['flags'], SLAB_RED_ZONE) and not is_set(kmem_cache['flags'], __OBJECT_POISON) and not is_set(kmem_cache['flags'], SLAB_STORE_USER):
+        for i in range(0, int(kmem_cache['inuse']), 8):
+            if not i % 16:
+                print(f"{hex(chunk+i)}:  {colorama.Fore.BLUE + '0x{0:0{1}x}'.format(sread_memory(chunk+i, length=0x8, pack_64=True), 16) + colorama.Fore.RESET}  ", end='')
+            elif i % 16:
+                print(f"{colorama.Fore.BLUE + '0x{0:0{1}x}'.format(sread_memory(chunk+i, length=0x8, pack_64=True), 16) + colorama.Fore.RESET}")
+    else:
         print("Not supported for now")
 
 def parse_chunk(addr: int):
@@ -267,7 +286,7 @@ def parse_chunk(addr: int):
     if not addr:
         return
 
-    node, kmem_cache, page_slab = chunk_from_addr(addr)
+    node, kmem_cache, slab, kind = chunk_from_addr(addr)
 
     if not kmem_cache:
         print(f"{hex(addr)} not found !")
@@ -275,58 +294,47 @@ def parse_chunk(addr: int):
 
     info_kmemcache(kmem_cache)
 
-    if not node:
-        # allocated in the cpu_slab
-        #print(f"{hex(addr)} belongs to {kmem_cache['name'].string()} @ {(gdb.Value(int(page_slab) + offset_of('freelist', 'struct page')).cast(page_t).dereference().cast(ulong_t) & ~0xfff)} slab")
-        print(dump_page_cpu(page_slab))
-
-    if node:
-        # allocated in the kmem_cache_node which belongs to the kmem_cache
-        #print(f"{hex(addr)} belongs to {kmem_cache['name'].string()} @ {kmem_cache}")
-        print(dump_page_node(page_slab))
+    if kind is SLAB_CPU_ACTIVE:
+        print(info_slab_cpu(slab))
+    elif kind is SLAB_CPU_PARTIAL:
+        print("Not supported for now")
+    elif kind is SLAB_NODE:
+        print(dump_page_node(slab))
 
     # =-=-=-=-=-= 
 
-    chunk_metadata(addr, kmem_cache)
+    if not is_allocated(addr):
+        # allocated chunk
+        print(f"{colorama.Fore.RED} Allocated chunk {colorama.Fore.RESET}")
+        alloc_chunk(addr, kmem_cache)
+    else:
+        # free chunk
+        print(f"{colorama.Fore.GREEN} Free chunk {colorama.Fore.RESET}")
+        free_chunk(addr, kmem_cache)
 
 # =-=-=-=-=-=-=-=-=-=-=
 
 def chunk_from_addr(addr: int) -> list:
     """
-    return a tuple: node, kmem_cache, page_slab
-                or None, kmem_cache, page_slab
+    return a tuple: node, kmem_cache, page_slab, kind
+                or None, kmem_cache, page_slab, kind
     """
-    page_t = gdb.lookup_type(f'struct page').pointer()
     kmem_cache_cpu_t = gdb.lookup_type(f'struct kmem_cache_cpu').pointer()
     kmem_cache_node_t = gdb.lookup_type(f'struct kmem_cache_node').pointer().pointer() # pointer to a pointer to a struct kmem_cache_node
-    ulong_t = gdb.lookup_type('unsigned long')
-
-    #f = open("log", "a+")
-
-    # print(f"kmem_cache nr: {len(kmem_cache)}")
 
     for kmem in kmem_cache:
         cpu_slab = kmem['cpu_slab'].cast(kmem_cache_cpu_t)
         node = kmem['node'].cast(kmem_cache_node_t).dereference()
 
-        # print(f"cpu_slab = {cpu_slab}")
-        # print(f"node = {node}")
-
-        # print(f"Iterating over kmem={hex(kmem)}, cpu_slab['freelist']={hex(int(cpu_slab['freelist'].cast(ulong_t)) & ~0xfff)}, node={node}")
-        # f.write(f"Iterating over kmem={hex(kmem)}, cpu_slab['freelist']={hex(int(cpu_slab['freelist'].cast(ulong_t)) & ~0xfff)}, node={node}\n")
-
         if in_node(node, addr):
-            page = in_node(node, addr)
-            #print(f"Chunk {hex(addr)} belongs to {hex(page['freelist'])} freelist")
-            #f.write(f"Chunk {hex(addr)} belongs to {hex(page['freelist'])} freelist\n")
-            return node, kmem, page
-        elif in_cpuslab(cpu_slab, addr):
-            #print(f"Chunk {hex(addr)} belongs to {hex(cpu_slab['freelist'])} freelist")
-            #f.write(f"Chunk {hex(addr)} belongs to {hex(cpu_slab['freelist'])} freelist\n")
-            return None, kmem, cpu_slab['page'].cast(page_t)
+            return node, kmem, in_node(node, addr), SLAB_NODE
+        elif in_cpuslab_active(cpu_slab, addr):
+            return None, kmem, cpu_slab, SLAB_CPU_ACTIVE
+        elif in_cpuslab_partial(cpu_slab, addr):
+            return None, kmem, in_cpuslab_partial(cpu_slab, addr), SLAB_CPU_PARTIAL
         continue
     
-    return (None, None, None)
+    return (None, None, None, None)
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
@@ -354,8 +362,6 @@ def all_kmem_cache(l=[]) -> list:
     kmem_cache = gdb.Value(int(nxt - ([f.bitpos for f in gdb.lookup_type("struct kmem_cache").fields() if f.name == "list"][0] // 8))).cast(kmalloc_c_type)
 
     if kmem_cache not in l:
-        print(hex(kmem_cache))
-        print(kmem_cache['name'].string())
         l.append(kmem_cache)
         if int(kmem_cache['list']['next']) == int(gdb.lookup_global_symbol('slab_caches').value().address):
             return l
@@ -427,15 +433,16 @@ class kheap(GenericCommand):
         kfreeBP('kfree', internal=True)
         _ = [kmem_cache.append(t) for t in all_kmem_cache(l=[])]
 
-    @only_if_gdb_running         # not required, ensures that the debug session is started
+    @only_if_gdb_running # not required, ensures that the debug session is started
     def do_invoke(self, argv):
 
-        if argv[0] == "kmem_cache" and len(argv[1]):
+        if argv[0] == "kmem_cache" and len(argv) == 2:
             info_kmemcache(int(argv[1], 16))
-        elif argv[0] == "chunk" and len(argv[1]):
+        elif argv[0] == "chunk" and len(argv) == 2:
             parse_chunk(int(argv[1], 16))
-        elif argv[0] == "kmem_cache_cpu" and len(argv[1]):
+        elif argv[0] == "kmem_cache_cpu" and len(argv) == 2:
             info_slab_cpu(int(argv[1], 16))
-
+        elif argv[0] == "kmem_cache":
+            _ = [info_kmemcache(f) for f in kmem_cache]
 if __name__ == "__main__":
     register_external_command(kheap())
