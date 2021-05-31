@@ -266,6 +266,11 @@ def free_chunk(chunk, kmem_cache):
     else:
         print("Not supported for now")
 
+def get_fp(chunk, kmem_cache):
+    return sread_memory(chunk + int(kmem_cache['offset']), 0x8, pack_64=True)
+
+# =-=-=-=-=-=-=-=-=-=
+
 def alloc_chunk(chunk, kmem_cache):
     if not is_set(kmem_cache['flags'], SLAB_POISON) and not is_set(kmem_cache['flags'], SLAB_RED_ZONE) and not is_set(kmem_cache['flags'], __OBJECT_POISON) and not is_set(kmem_cache['flags'], SLAB_STORE_USER):
         for i in range(0, int(kmem_cache['inuse']), 8):
@@ -309,7 +314,7 @@ def parse_chunk(addr: int):
         alloc_chunk(addr, kmem_cache)
     else:
         # free chunk
-        print(f"{colorama.Fore.GREEN} Free chunk {colorama.Fore.RESET}")
+        print(f"{colorama.Fore.GREEN} Free chunk, fp: {hex(get_fp(addr, kmem_cache))} {colorama.Fore.RESET}")
         free_chunk(addr, kmem_cache)
 
 # =-=-=-=-=-=-=-=-=-=-=
@@ -425,7 +430,6 @@ class kheap(GenericCommand):
 
     @only_if_gdb_running # not required, ensures that the debug session is started
     def do_invoke(self, argv):
-
         if argv[0] == "kmem_cache" and len(argv) == 2:
             info_kmemcache(int(argv[1], 16))
         elif argv[0] == "chunk" and len(argv) == 2:
@@ -434,5 +438,6 @@ class kheap(GenericCommand):
             info_slab_cpu(int(argv[1], 16))
         elif argv[0] == "kmem_cache":
             _ = [info_kmemcache(f) for f in kmem_cache]
+
 if __name__ == "__main__":
     register_external_command(kheap())
