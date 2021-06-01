@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 
-from os import X_OK
 import gdb
 import colorama
 import struct
