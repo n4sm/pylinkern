@@ -160,7 +160,7 @@ class kfreeBP(gdb.Breakpoint):
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
-CONFIG_FILENAME = ".config"
+CONFIG_FILENAME = "config"
 
 def is_enabled(opt):
     conf_file = open(CONFIG_FILENAME, 'r').read()
