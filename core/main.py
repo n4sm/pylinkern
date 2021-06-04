@@ -3,7 +3,15 @@
 import gdb
 import colorama
 import struct
+
+import sys
+sys.path.insert(1, '../')
+import check_opt
+
+# Links: 
 # https://translate.google.com/translate?hl=&sl=auto&tl=en&u=https%3A%2F%2Fzhuanlan.zhihu.com%2Fp%2F103721910
+# https://github.com/ulfalizer/Kconfiglib
+# https://translate.google.com/translate?hl=&sl=auto&tl=en&u=http%3A%2F%2Fwww.wowotech.net%2Fmemory_management%2F426.html&sandbox=1
 
 kmem_cache = []
 
@@ -359,6 +367,15 @@ def all_kmem_cache(l=[]) -> list:
             return l
         return all_kmem_cache(l)
 
+# =-=-=-=-=-=-=-=-=-=-=-=-=
+
+def check_options():
+    for opt, set in check_opt.check_opts(['SMP']).items():
+        if set:
+            print(f"{opt} enabled !")
+            continue
+        print(f"{opt} disabled !")
+
 # We keep this code, who knows ?
 
 # def new_kmalloc_caches() -> list:
@@ -437,6 +454,8 @@ class kheap(GenericCommand):
             info_slab_cpu(int(argv[1], 16))
         elif argv[0] == "kmem_cache":
             _ = [info_kmemcache(f) for f in kmem_cache]
+        elif argv[0] == "analysis":
+            check_options()
 
 if __name__ == "__main__":
     register_external_command(kheap())

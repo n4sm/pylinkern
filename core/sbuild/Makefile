@@ -48,6 +48,17 @@ retry:
 	cp $(BUILD)/arch/$(CONF_LINUX_ARCH)/boot/bzImage $(CONF_LINUX_BZIMAGE)
 	cp $(BUILD)/vmlinux $(VMLINUX)
 
+internal:
+	if test -z "$(BUILD)"; then \
+		echo "exit, bad structure";\
+		exit -1; \
+	fi
+
+	make -C build/ ARCH=x86_64 scriptconfig SCRIPT=../Kconfiglib/examples/obuild.py
+	cp $(CONFIG) $(BUILD)/.config
+	make -C $(BUILD) olddefconfig
+	make -C $(BUILD) -j$(CONF_CPUS)
+
 $(SRC_DONE): $(ARCHIVE)
 	mkdir -p $(SRC)
 	tar --strip 1 -xvf $(ARCHIVE) -C $(SRC)/
