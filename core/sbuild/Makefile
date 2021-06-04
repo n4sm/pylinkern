@@ -1,3 +1,5 @@
+# https://github.com/t00sh/vm-make/blob/master/linux/Makefile
+
 export CONF_LINUX_BUILD=$(PWD)
 export CONF_LINUX_BZIMAGE=$(CONF_LINUX_BUILD)/out/bzImage
 export CONF_LINUX_SYSTEMMAP=$(CONF_LINUX_BUILD)/out/System.map
@@ -19,7 +21,6 @@ SRC_DONE=$(SRC)/.done
 
 base: $(SRC_DONE)
 
-	mkdir -p out/;
 	mkdir -p $(BUILD);
 	make -C $(SRC) O=$(BUILD) defconfig;
 	cp build/.config defconfig
@@ -54,15 +55,18 @@ internal:
 		exit -1; \
 	fi
 
-	make -C build/ ARCH=x86_64 scriptconfig SCRIPT=../Kconfiglib/examples/obuild.py
+	make -C build/ ARCH=x86_64 scriptconfig SCRIPT=../Kconfiglib/examples/obuild.py SCRIPT_ARG=GDB_INTERNAL
 	cp $(CONFIG) $(BUILD)/.config
 	make -C $(BUILD) olddefconfig
 	make -C $(BUILD) -j$(CONF_CPUS)
 
+install:
+	git clone https://github.com/n4sm/Kconfiglib
+	cp ../obuild.py Kconfiglib/examples
+
 $(SRC_DONE): $(ARCHIVE)
 	mkdir -p $(SRC)
 	tar --strip 1 -xvf $(ARCHIVE) -C $(SRC)/
-	touch $@
 
 $(ARCHIVE):
 	if test -z "$(CONF_LINUX_URL)"; then \
