@@ -8,7 +8,7 @@ def is_kptr(ptr) -> bool:
     return ptr > 0xffff800000000000 and ptr < 0xffffffffff600fff
 
 def _check_smp() -> bool:
-    mem = gdb.lookup_global_symbol('kmem_cache').value()
+    mem = gdb.Value(0xffffffff82b71130) # extract from System.map, address of kmem_cache, wa can automate this by parsing /proc/kallsyms  
 
     kmem_cache_t = gdb.lookup_type(f'struct kmem_cache').pointer()
     kmem_cache = mem.cast(kmem_cache_t)

@@ -8,7 +8,7 @@ import sys
 sys.path.insert(1, '../')
 import check_opt
 
-# Links: 
+# Links:
 # https://translate.google.com/translate?hl=&sl=auto&tl=en&u=https%3A%2F%2Fzhuanlan.zhihu.com%2Fp%2F103721910
 # https://github.com/ulfalizer/Kconfiglib
 # https://translate.google.com/translate?hl=&sl=auto&tl=en&u=http%3A%2F%2Fwww.wowotech.net%2Fmemory_management%2F426.html&sandbox=1
@@ -111,6 +111,9 @@ def dump_pagecpu_active(page):
 # =-=-=-=-=-=-=-=-=-=-=-=
 
 def flags_kmemcache(kmem_cache):
+    """
+    checks flags
+    """
     is_set(int(kmem_cache['flags']), SLAB_RED_ZONE, s_flags="SLAB_RED_ZONE")
     is_set(int(kmem_cache['flags']), SLAB_CONSISTENCY_CHECKS, s_flags="SLAB_CONSISTENCY_CHECKS")
     is_set(int(kmem_cache['flags']), SLAB_DEBUG_OBJECTS, s_flags="SLAB_DEBUG_OBJECTS")
@@ -122,6 +125,9 @@ def flags_kmemcache(kmem_cache):
     is_set(int(kmem_cache['flags']), __OBJECT_POISON, s_flags="__OBJECT_POISON")
 
 def info_kmemcache(mem):
+    """
+    https://elixir.bootlin.com/linux/v5.9.8/source/include/linux/slub_def.h#L83
+    """
     kmem_cache_t = gdb.lookup_type(f'struct kmem_cache').pointer()
     kmem_cache = gdb.Value(mem).cast(kmem_cache_t)
 
@@ -144,6 +150,9 @@ def info_kmemcache(mem):
 # =-=-=-=-=-=-=-=-=-=-=-=
 
 def info_slab_cpu(cpu):
+    """
+    https://elixir.bootlin.com/linux/v5.9.8/source/include/linux/slub_def.h#L42
+    """
     kmem_cache_cpu_t = gdb.lookup_type(f'struct kmem_cache_cpu').pointer()
     cpu = gdb.Value(cpu).cast(kmem_cache_cpu_t)
 
@@ -176,6 +185,10 @@ def is_enabled(opt):
     return ret != -1 and conf_file[conf_file.index(opt)+len(opt)+1:conf_file.index(opt)+len(opt)+2] == 'y'
 
 def offset_of(member: str, s_type: str) -> int:
+    """
+    https://sourceware.org/gdb/onlinedocs/gdb/Types-In-Python.html
+    offset of a field among the structure
+    """
     return [field.bitpos for name, field in gdb.types.deep_items(gdb.lookup_type(s_type)) if name == member][0] // 8
 
 # =-=-=-=-=-=-=-=-=-=-=-=
@@ -274,11 +287,17 @@ def free_chunk(chunk, kmem_cache):
         print("Not supported for now")
 
 def get_fp(chunk, kmem_cache):
+    """
+    returns next free pointer
+    """
     return sread_memory(chunk + int(kmem_cache['offset']), 0x8, pack_64=True)
 
 # =-=-=-=-=-=-=-=-=-=
 
 def alloc_chunk(chunk, kmem_cache):
+    """
+    Analysis for allocated chunk
+    """
     if not is_set(kmem_cache['flags'], SLAB_POISON) and not is_set(kmem_cache['flags'], SLAB_RED_ZONE) and not is_set(kmem_cache['flags'], __OBJECT_POISON) and not is_set(kmem_cache['flags'], SLAB_STORE_USER):
         for i in range(0, int(kmem_cache['inuse']), 8):
             if not i % 16:
@@ -329,7 +348,7 @@ def parse_chunk(addr: int):
 def chunk_from_addr(addr: int) -> list:
     """
     return a tuple: node, kmem_cache, page_slab, kind
-                or None, kmem_cache, page_slab, kind
+                 or None, kmem_cache, page_slab, kind
     """
     kmem_cache_cpu_t = gdb.lookup_type(f'struct kmem_cache_cpu').pointer()
     kmem_cache_node_t = gdb.lookup_type(f'struct kmem_cache_node').pointer().pointer() # pointer to a pointer to a struct kmem_cache_node
