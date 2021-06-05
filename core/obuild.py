@@ -63,6 +63,52 @@ def may_no(kconf, opt):
 #      |    The visibility of the symbol. One of 0, 1, 2, representing n, m, y. See
 #      |    the module documentation for an overview of symbol values and visibility.
 
+# =-=-=-=-=-=-=-=-=-=---
+
+# menuconfig NET_9P
+# 	depends on NET
+# 	tristate "Plan 9 Resource Sharing Support (9P2000)"
+# 	help
+# 	  If you say Y here, you will get experimental support for
+# 	  Plan 9 resource sharing via the 9P2000 protocol.
+
+# 	  See <http://v9fs.sf.net> for more information.
+
+# 	  If unsure, say N.
+
+# if NET_9P
+
+# config NET_9P_VIRTIO
+# 	depends on VIRTIO
+# 	tristate "9P Virtio Transport"
+# 	help
+# 	  This builds support for a transports between
+# 	  guest partitions and a host partition.
+
+# config NET_9P_XEN
+# 	depends on XEN
+# 	select XEN_XENBUS_FRONTEND
+# 	tristate "9P Xen Transport"
+# 	help
+# 	  This builds support for a transport for 9pfs between
+# 	  two Xen domains.
+
+
+# config NET_9P_RDMA
+# 	depends on INET && INFINIBAND && INFINIBAND_ADDR_TRANS
+# 	tristate "9P RDMA Transport (Experimental)"
+# 	help
+# 	  This builds support for an RDMA transport.
+
+# config NET_9P_DEBUG
+# 	bool "Debug information"
+# 	help
+# 	  Say Y if you want the 9P subsystem to log debug information.
+
+# endif
+
+_9P_CONF = ['NET_9P', 'VIRTIO_PCI', 'VIRTIO', 'NET_9P_VIRTIO', 'NET_9P_XEN', 'NET_9P_RDMA', 'NET_9P_DEBUG', '9P_FS', '9P_FS_POSIX_ACL', '9P_FS_SECURITY']
+
 def enable_opt(kconf, opt):
     kconf.syms[opt].set_value(TRUE)
 
@@ -75,6 +121,10 @@ def disable_opt(kconf, opt):
 
 def set_debug(kconf):
     for opt in DEBUG_CONF:
+        enable_opt(kconf, opt)
+
+def set_9p(kconf):
+    for opt in _9P_CONF:
         enable_opt(kconf, opt)
 
 def main():

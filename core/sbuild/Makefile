@@ -25,6 +25,8 @@ base: $(SRC_DONE)
 	make -C $(SRC) O=$(BUILD) defconfig;
 	cp build/.config defconfig
 	cat kconfiglib.patch >> $(SRC)/scripts/kconfig/Makefile
+
+	cp ../obuild.py Kconfiglib/examples
 	make -C build/ ARCH=x86_64 scriptconfig SCRIPT=../Kconfiglib/examples/obuild.py;
 	cp $(CONFIG) $(BUILD)/.config;
 	make -C $(BUILD) olddefconfig;
@@ -40,6 +42,7 @@ retry:
 		exit -1; \
 	fi
 
+	cp ../obuild.py Kconfiglib/examples	
 	make -C build/ ARCH=x86_64 scriptconfig SCRIPT=../Kconfiglib/examples/obuild.py
 	cp $(CONFIG) $(BUILD)/.config
 	make -C $(BUILD) olddefconfig
@@ -55,6 +58,7 @@ internal:
 		exit -1; \
 	fi
 
+	cp ../obuild.py Kconfiglib/examples
 	make -C build/ ARCH=x86_64 scriptconfig SCRIPT=../Kconfiglib/examples/obuild.py SCRIPT_ARG=GDB_INTERNAL
 	cp $(CONFIG) $(BUILD)/.config
 	make -C $(BUILD) olddefconfig
