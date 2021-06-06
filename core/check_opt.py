@@ -28,7 +28,12 @@ class RawBreakpoint(gdb.Breakpoint):
 
 def dump_sym(name, addr):
     print(f"{name}: {hex(addr)}")
+    if name + ' ' + hex(addr) + '\n' in open(DMP_SYM, 'a+').readlines():
+        return
+    
     open(DMP_SYM, 'a+').write(name + ' ' + hex(addr) + '\n')
+
+
 
 def find_kmem_cache() -> int:
     mem = kallsyms_lookup_symbols('kmem_cache')[1]
