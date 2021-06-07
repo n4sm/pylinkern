@@ -8,9 +8,15 @@ import subprocess
 KALLSYMS = "out/mountpoint/kallsyms"
 DMP_SYM = "out/sym"
 
+
 # https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
 def is_kptr(ptr) -> bool:
     return ptr > 0xffff800000000000 and ptr < 0xffffffffff600fff
+
+# =-=-=-=-=-=-=-=-=-=-=-=--
+
+def clear():
+    gdb.execute('pi import os; os.system(\'clear\')')
 
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
@@ -22,32 +28,82 @@ class RawBreakpoint(gdb.Breakpoint):
         gdb.Breakpoint.__init__(self, "*{}".format(hex(addr)), internal=True)
 
     def stop(self):
-        return self.callback(self.name, int(gdb.parse_and_eval("$rdi").cast(gdb.lookup_type('unsigned long'))))
+        self.callback(self.name, int(gdb.parse_and_eval("$rdi").cast(gdb.lookup_type('unsigned long'))))
+        gdb.Breakpoint.delete(self)
 
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
+def kallsyms_lookup_symbols(sym) -> tuple:
+    for l in open(KALLSYMS, 'r').readlines():
+        curr_sym = l.split(' ')[2].replace('\n', '')
+        type = l.split(' ')[1]
+        addr = int(l.split(' ')[0], 16)
+
+        if sym is curr_sym:
+            return (type, addr)
+    
+    return (None, None)
+
+# =-=-=-=-=-=-=-=-=-=-=-=--
+
+def fcomplete_sym(name, addr) -> bool:
+    if name + ' ' + hex(addr) + '\n' in open(DMP_SYM, 'a+').readlines():
+        return True
+
+    return False
+
+def fsym(name):
+    return '\n' + name + ' ' in open(DMP_SYM, 'a+').readlines()
+
+def fsym_replace(name, addr):
+    f = open(DMP_SYM, 'w')
+    content = f.read()
+    offt_beg = content.find('\n' + name + ' ')
+    offt_end = content[offt_beg+1].find('\n')
+    old_adddr = content[offt_beg+len('\n' + name + ' ')+1:offt_end]
+    f.write(content.replace('\n' + name + ' ' + old_adddr, '\n' + name + ' ' + hex(addr)))
+
 def dump_sym(name, addr):
     print(f"{name}: {hex(addr)}")
-    if name + ' ' + hex(addr) + '\n' in open(DMP_SYM, 'a+').readlines():
+
+    # same symbol name but different address
+    if fsym(name) and not fcomplete_sym(name):
+        print(f"")
+        fsym_replace(name, addr)
+
+    # same symbol name & same address
+    if fcomplete_sym(name, addr):
+        print(f'{name} already in {DMP_SYM} !')
         return
-    
+
     open(DMP_SYM, 'a+').write(name + ' ' + hex(addr) + '\n')
 
 
+def hook_sym(name):
+    mem = kallsyms_lookup_symbols(name)[1]
+    if not mem:
+        print(f"{name} not found, abort")
+        return None
 
-def find_kmem_cache() -> int:
-    mem = kallsyms_lookup_symbols('kmem_cache')[1]
+    RawBreakpoint(mem, dump_sym, name)
+    clear()
+    print(f'Please trigger {name}, by default the execution will continue.')
+    gdb.execute('continue')
+
+def find_sym(name) -> int:
+    mem = kallsyms_lookup_symbols(name)[1]
     if mem:
         return mem
 
     # slow way
-    mem = kallsyms_lookup_symbols('__kmem_cache_release')[1]
-    if not mem:
-        print("__kmem_cache_release not found, abort")
-        return None
+    if fsym('kmem_cache'):
+
+
+    # very slow way
+    hook_sym('__kmem_cache_release')
 
 def _check_smp() -> bool:
-    mem = gdb.Value(find_kmem_cache())
+    mem = gdb.Value(find_sym('kmem_cache'))
     if not mem:
         return -1
 
@@ -71,19 +127,6 @@ def check_opts(opts: list) -> dict:
         set_return[opts[i]] = options_d[opts[i]]()
 
     return set_return
-
-# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-def kallsyms_lookup_symbols(sym) -> tuple:
-    for l in open(KALLSYMS, 'r').readlines():
-        curr_sym = l.split(' ')[2].replace('\n', '')
-        type = l.split(' ')[1]
-        addr = int(l.split(' ')[0], 16)
-
-        if sym is curr_sym:
-            return (type, addr)
-    
-    return (None, None)
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
