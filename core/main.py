@@ -460,7 +460,7 @@ class kheap(GenericCommand):
 
     def __init__(self) -> None:
         super().__init__()
-        kfreeBP('kfree', internal=True)
+        # kfreeBP('kfree', internal=True)
         _ = [kmem_cache.append(t) for t in all_kmem_cache(l=[])]
 
     @only_if_gdb_running # not required, ensures that the debug session is started

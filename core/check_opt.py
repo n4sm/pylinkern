@@ -16,30 +16,39 @@ def is_kptr(ptr) -> bool:
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
 def clear():
-    gdb.execute('pi import os; os.system(\'clear\')')
+    gdb.execute('pi import subprocess; subprocess.run([\'/usr/bin/clear\'])')
 
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
 class RawBreakpoint(gdb.Breakpoint):
-    def __init__(self, addr, _u_callback, name):
+    def __init__(self, addr, _u_callback, name_fn, name_target, reg_arg):
         self.callback = _u_callback
-        self.name = name
+        self.name_fn = name_fn
+        self.name_target = name_target
         self.addr = addr
-        gdb.Breakpoint.__init__(self, "*{}".format(hex(addr)), internal=True)
+        self.reg_arg = reg_arg
+        gdb.Breakpoint.__init__(self, "*{}".format(hex(addr)))
 
     def stop(self):
-        self.callback(self.name, int(gdb.parse_and_eval("$rdi").cast(gdb.lookup_type('unsigned long'))))
-        gdb.Breakpoint.delete(self)
+        self.callback(self.name_fn, self.name_target, int(gdb.parse_and_eval(self.reg_arg).cast(gdb.lookup_type('unsigned long'))))
+        gdb.Breakpoint.delete()
 
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
 def kallsyms_lookup_symbols(sym) -> tuple:
     for l in open(KALLSYMS, 'r').readlines():
+        if '__kmem' in l:
+            print(l)
+            curr_sym = l.split(' ')[2].replace('\n', '')
+            type = l.split(' ')[1]
+            addr = int(l.split(' ')[0], 16)
+            print(curr_sym + ' ' + type + ' ' + hex(addr))
+
         curr_sym = l.split(' ')[2].replace('\n', '')
         type = l.split(' ')[1]
         addr = int(l.split(' ')[0], 16)
 
-        if sym is curr_sym:
+        if sym == curr_sym:
             return (type, addr)
     
     return (None, None)
@@ -60,34 +69,41 @@ def fsym_replace(name, addr):
     content = f.read()
     offt_beg = content.find('\n' + name + ' ')
     offt_end = content[offt_beg+1].find('\n')
-    old_adddr = content[offt_beg+len('\n' + name + ' ')+1:offt_end]
-    f.write(content.replace('\n' + name + ' ' + old_adddr, '\n' + name + ' ' + hex(addr)))
+    old_addr = content[offt_beg+len('\n' + name + ' ')+1:offt_end]
+    f.write(content.replace('\n' + name + ' ' + old_addr, '\n' + name + ' ' + hex(addr)))
 
-def dump_sym(name, addr):
-    print(f"{name}: {hex(addr)}")
+def fvalue_sym(name):
+    f = open(DMP_SYM, 'r')
+    content = f.read()
+    offt_beg = content.find('\n' + name + ' ')
+    offt_end = content[offt_beg+1].find('\n')
+    return int(content[offt_beg+len('\n' + name + ' ')+1:offt_end], 16)
+
+def dump_sym(name_fn, name_target, addr):
+    print(f"{name_target}: {hex(addr)}")
 
     # same symbol name but different address
-    if fsym(name) and not fcomplete_sym(name):
-        print(f"")
-        fsym_replace(name, addr)
-
-    # same symbol name & same address
-    if fcomplete_sym(name, addr):
-        print(f'{name} already in {DMP_SYM} !')
+    if fsym(name_target) and not fcomplete_sym(name_target):
+        print(f"Updating {name_target}")
+        fsym_replace(name_target, addr)
         return
 
-    open(DMP_SYM, 'a+').write(name + ' ' + hex(addr) + '\n')
+    # same symbol name & same address
+    if fcomplete_sym(name_target, addr):
+        print(f'{name_target} already in {DMP_SYM} !')
+        return
 
+    open(DMP_SYM, 'a+').write(name_target + ' ' + hex(addr) + '\n')
 
-def hook_sym(name):
-    mem = kallsyms_lookup_symbols(name)[1]
+def hook_sym(name_fn, name_target, reg_arg):
+    mem = kallsyms_lookup_symbols(name_fn)[1]
     if not mem:
-        print(f"{name} not found, abort")
+        print(f"{mem} {name_fn} not found, abort")
         return None
 
-    RawBreakpoint(mem, dump_sym, name)
-    clear()
-    print(f'Please trigger {name}, by default the execution will continue.')
+    print(f"{name_fn}: {hex(mem)}")
+    RawBreakpoint(mem, dump_sym, name_fn, name_target, reg_arg)
+    print(f'Please trigger {name_fn}, by default the execution will continue.')
     gdb.execute('continue')
 
 def find_sym(name) -> int:
@@ -97,10 +113,10 @@ def find_sym(name) -> int:
 
     # slow way
     if fsym('kmem_cache'):
+        return fvalue_sym(name)
 
-
-    # very slow way
-    hook_sym('__kmem_cache_release')
+    # very slow way, has to reboot
+    hook_sym('__kmem_cache_create', 'kmem_cache', '$rdi')
 
 def _check_smp() -> bool:
     mem = gdb.Value(find_sym('kmem_cache'))
