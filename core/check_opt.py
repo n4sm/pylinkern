@@ -37,12 +37,12 @@ class RawBreakpoint(gdb.Breakpoint):
 
 def kallsyms_lookup_symbols(sym) -> tuple:
     for l in open(KALLSYMS, 'r').readlines():
-        if '__kmem' in l:
-            print(l)
-            curr_sym = l.split(' ')[2].replace('\n', '')
-            type = l.split(' ')[1]
-            addr = int(l.split(' ')[0], 16)
-            print(curr_sym + ' ' + type + ' ' + hex(addr))
+        # if '__kmem' in l:
+        #     print(l)
+        #     curr_sym = l.split(' ')[2].replace('\n', '')
+        #     type = l.split(' ')[1]
+        #     addr = int(l.split(' ')[0], 16)
+        #     print(curr_sym + ' ' + type + ' ' + hex(addr))
 
         curr_sym = l.split(' ')[2].replace('\n', '')
         type = l.split(' ')[1]
@@ -56,28 +56,28 @@ def kallsyms_lookup_symbols(sym) -> tuple:
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
 def fcomplete_sym(name, addr) -> bool:
-    if name + ' ' + hex(addr) + '\n' in open(DMP_SYM, 'a+').readlines():
+    if name + ' ' + hex(addr) in "".join(open(DMP_SYM, 'r+').readlines()):
         return True
 
     return False
 
 def fsym(name):
-    return '\n' + name + ' ' in open(DMP_SYM, 'a+').readlines()
+    return name + ' ' in "".join(open(DMP_SYM, 'r+').readlines())
 
 def fsym_replace(name, addr):
     f = open(DMP_SYM, 'w')
     content = f.read()
-    offt_beg = content.find('\n' + name + ' ')
-    offt_end = content[offt_beg+1].find('\n')
-    old_addr = content[offt_beg+len('\n' + name + ' ')+1:offt_end]
-    f.write(content.replace('\n' + name + ' ' + old_addr, '\n' + name + ' ' + hex(addr)))
+    offt_beg = content.find(name + ' ')
+    offt_end = content[offt_beg].find('\n')
+    old_addr = content[offt_beg+len(name + ' ')+1:offt_end]
+    f.write(content.replace(name + ' ' + old_addr, name + ' ' + hex(addr)))
 
 def fvalue_sym(name):
     f = open(DMP_SYM, 'r')
     content = f.read()
-    offt_beg = content.find('\n' + name + ' ')
-    offt_end = content[offt_beg+1].find('\n')
-    return int(content[offt_beg+len('\n' + name + ' ')+1:offt_end], 16)
+    offt_beg = content.find(name + ' ')
+    offt_end = content[offt_beg].find('\n')
+    return int(content[offt_beg+len(name + ' '):offt_end], 16)
 
 def dump_sym(name_fn, name_target, addr):
     print(f"{name_target}: {hex(addr)}")
@@ -116,7 +116,7 @@ def find_sym(name) -> int:
         return fvalue_sym(name)
 
     # very slow way, has to reboot
-    hook_sym('__kmem_cache_create', 'kmem_cache', '$rdi')
+    hook_sym('kmem_cache_alloc', 'kmem_cache', '$rdi')
 
 def _check_smp() -> bool:
     mem = gdb.Value(find_sym('kmem_cache'))
