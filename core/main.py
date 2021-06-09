@@ -6,6 +6,7 @@ import struct
 
 import sys
 sys.path.insert(1, '../')
+# 1 ? ¯\_(ツ)_/¯
 import check_opt
 
 # Links:
@@ -30,6 +31,8 @@ __OBJECT_POISON	 = 0x80000000
 SLAB_CPU_ACTIVE = 0x0
 SLAB_NODE = 0x1
 SLAB_CPU_PARTIAL = 0x2
+
+DEBUG = False
 
 def is_set(flags, flag, s_flags=""):
     if flags & flag and len(s_flags):
@@ -369,7 +372,7 @@ def chunk_from_addr(addr: int) -> list:
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
-def all_kmem_cache(l=[]) -> list:
+def init_kmem_cache_sym(l=[]) -> list:
     kmalloc_c_type = gdb.lookup_type(f'struct kmem_cache').pointer()
     slab_caches_t = gdb.lookup_type(f'struct list_head').pointer()
 
@@ -384,7 +387,26 @@ def all_kmem_cache(l=[]) -> list:
         l.append(kmem_cache)
         if int(kmem_cache['list']['next']) == int(gdb.lookup_global_symbol('slab_caches').value().address):
             return l
-        return all_kmem_cache(l)
+        return init_kmem_cache_sym(l)
+
+def init_kmem_cache_nosym(name_fn=None, name_target=None, addr=None) -> list:
+    mem = check_opt.kallsyms_lookup_symbols('kmem_cache_alloc')[1]
+
+    if addr:
+        kmem_cache.append(mem)
+
+    check_opt.RawBreakpoint(mem, init_kmem_cache_nosym, 'kmem_cache_alloc', 'kmem_cache', '$rdi')
+    gdb.execute('continue')
+
+def init_kmem_cache(sym=False):
+    if len(kmem_cache):
+        return kmem_cache
+    if sym:
+        _ = [kmem_cache.append(r) for r in init_kmem_cache_sym()]
+        return kmem_cache
+
+    print('Wait a few seconds and hit ctrl+c to start kheap with the right kmem_cache array')
+    return init_kmem_cache_nosym()
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=
 
@@ -394,6 +416,12 @@ def check_options():
             print(f"{opt} enabled !")
             continue
         print(f"{opt} disabled !")
+
+# =-=-=-=-=-=-=-=-=-=-=-=-=
+
+def help():
+    print(f'kheap [kmem_cache|chunk|kmem_cache_cpu] addr:\tPrints informations about a particular struct')
+    print(f'kheap [kmem_cache|analysis]:\t\t\tPrints all the kmem_cache or analyses automatically some structures like kmem_cache')
 
 # We keep this code, who knows ?
 
@@ -461,7 +489,6 @@ class kheap(GenericCommand):
     def __init__(self) -> None:
         super().__init__()
         # kfreeBP('kfree', internal=True)
-        _ = [kmem_cache.append(t) for t in all_kmem_cache(l=[])]
 
     @only_if_gdb_running # not required, ensures that the debug session is started
     def do_invoke(self, argv):
@@ -474,7 +501,10 @@ class kheap(GenericCommand):
         elif argv[0] == "kmem_cache":
             _ = [info_kmemcache(f) for f in kmem_cache]
         elif argv[0] == "analysis":
-            check_options()
+            init_kmem_cache(sym=DEBUG)
+            # check_options()
+        elif argv[0] == "help":
+            help()
 
 if __name__ == "__main__":
     register_external_command(kheap())

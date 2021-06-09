@@ -27,7 +27,7 @@ class RawBreakpoint(gdb.Breakpoint):
         self.name_target = name_target
         self.addr = addr
         self.reg_arg = reg_arg
-        gdb.Breakpoint.__init__(self, "*{}".format(hex(addr)))
+        gdb.Breakpoint.__init__(self, "*{}".format(hex(addr)), internal=True)
 
     def stop(self):
         self.callback(self.name_fn, self.name_target, int(gdb.parse_and_eval(self.reg_arg).cast(gdb.lookup_type('unsigned long'))))
@@ -112,11 +112,15 @@ def find_sym(name) -> int:
         return mem
 
     # slow way
-    if fsym('kmem_cache'):
+    if fsym(name):
         return fvalue_sym(name)
 
-    # very slow way, has to reboot
-    hook_sym('kmem_cache_alloc', 'kmem_cache', '$rdi')
+    # custom technique
+    if name == "kmem_cache":
+        # very slow way, has to reboot, will not return
+        hook_sym('kmem_cache_alloc', 'kmem_cache', '$rdi')
+
+    return -1
 
 def _check_smp() -> bool:
     mem = gdb.Value(find_sym('kmem_cache'))
@@ -138,7 +142,7 @@ def check_opts(opts: list) -> dict:
         return -1
 
     set_return = {}
-    recompile(opts)
+    # recompile(opts)
     for i in range(len(opts)):
         set_return[opts[i]] = options_d[opts[i]]()
 
