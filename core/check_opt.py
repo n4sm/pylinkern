@@ -37,13 +37,6 @@ class RawBreakpoint(gdb.Breakpoint):
 
 def kallsyms_lookup_symbols(sym) -> tuple:
     for l in open(KALLSYMS, 'r').readlines():
-        # if '__kmem' in l:
-        #     print(l)
-        #     curr_sym = l.split(' ')[2].replace('\n', '')
-        #     type = l.split(' ')[1]
-        #     addr = int(l.split(' ')[0], 16)
-        #     print(curr_sym + ' ' + type + ' ' + hex(addr))
-
         curr_sym = l.split(' ')[2].replace('\n', '')
         type = l.split(' ')[1]
         addr = int(l.split(' ')[0], 16)
