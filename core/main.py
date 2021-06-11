@@ -421,7 +421,7 @@ def check_options():
 
 def help():
     print(f'kheap [kmem_cache|chunk|kmem_cache_cpu] addr:\tPrints informations about a particular struct')
-    print(f'kheap [kmem_cache|analysis]:\t\t\tPrints all the kmem_cache or analyses automatically some structures like kmem_cache')
+    print(f'kheap [kmem_cache|analysis|help]:\t\t\tPrints all the kmem_cache or analyses automatically some structures like kmem_cache')
 
 # We keep this code, who knows ?
 
