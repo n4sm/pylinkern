@@ -405,6 +405,7 @@ def init_kmem_cache(sym=False):
         _ = [kmem_cache.append(r) for r in init_kmem_cache_sym()]
         return kmem_cache
 
+    print("Warning: This technique is efficient only if you're currently at the begin of the execution of the kernel")
     print('Wait a few seconds and hit ctrl+c to start kheap with the right kmem_cache array')
     return init_kmem_cache_nosym()
 
