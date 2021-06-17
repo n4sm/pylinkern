@@ -113,6 +113,22 @@ def dump_pagecpu_active(page):
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
+def valid_kmem_cache(mem):
+    cast_mem = gdb.Value(mem).cast(gdb.lookup_type('struct kmem_cache').pointer())
+    for name, field in gdb.types.deep_items(gdb.lookup_type('struct kmem_cache')):
+        if field.type.code == gdb.TYPE_CODE_PTR and not check_opt.is_kptr(cast_mem[name]) and name != 'cpu_slab':
+            return False
+    return True
+
+def valid_kmem_cache() -> int:
+    """
+    returns the address of a valid kmem_cache
+    """
+
+    return [int(cache) for cache in kmem_cache if valid_kmem_cache(cache)][0]
+
+# =-=-=-=-=-=-=-=-=-=-=-=
+
 def flags_kmemcache(kmem_cache):
     """
     checks flags
@@ -133,6 +149,10 @@ def info_kmemcache(mem):
     """
     kmem_cache_t = gdb.lookup_type(f'struct kmem_cache').pointer()
     kmem_cache = gdb.Value(mem).cast(kmem_cache_t)
+
+    if not valid_kmem_cache(mem):
+        print(f"{hex(mem)} is not a valid kmem_cache")
+        return -1
 
     print("--=-=-= kmem_cache =-=-=--")
     print(f"Name: {kmem_cache['name'].string()}")
@@ -372,6 +392,54 @@ def chunk_from_addr(addr: int) -> list:
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
+def is_list_head(mem) -> bool:
+    """
+    True if mem, mem['next'] and mem['prev'] are valid pointers
+    """
+    list_head_t = gdb.lookup_type('struct list_head').pointer()
+    tmp_list_head = gdb.Value(mem).cast(list_head_t)
+
+    if check_opt.is_kptr(tmp_list_head) and check_opt.is_kptr(tmp_list_head['next']) and check_opt.is_kptr(tmp_list_head['prev']):
+        return True
+    
+    return False
+
+def is_list_head_kmem(mem, direction='next') -> bool:
+    """
+    address of the list_head to test
+    returns a boolean, True if all the sanity checks succeed else False
+    """
+    list_head_t = gdb.lookup_type('struct list_head').pointer()
+    curr = gdb.Value(mem).cast(list_head_t)
+    beg = mem
+
+    if is_list_head(curr):
+        while True:
+            if is_list_head(curr[direction]):
+                curr = curr[direction].cast(list_head_t)
+                if int(curr) is beg and direction == 'next':
+                    return is_list_head_kmem(mem, direction='prev')
+                elif int(curr) is beg and direction == 'prev':
+                    return True
+            else:
+                break
+
+    return False 
+
+def list_head_kmem_cache(mem, offt=0) -> int:
+    """
+    mem: address of the kmem_cache
+    returns the address of the list_head field
+    """
+
+    if not is_list_head_kmem(mem):
+        # aligned on 4 bytes (more reliable)
+        return list_head_kmem_cache(mem+offt, offt=offt+1)
+
+    return mem
+
+# =-=-=-=-=-=-=-=-=-=-=-=
+
 def init_kmem_cache_sym(l=[]) -> list:
     kmalloc_c_type = gdb.lookup_type(f'struct kmem_cache').pointer()
     slab_caches_t = gdb.lookup_type(f'struct list_head').pointer()
@@ -389,25 +457,49 @@ def init_kmem_cache_sym(l=[]) -> list:
             return l
         return init_kmem_cache_sym(l)
 
+#===
+
 def init_kmem_cache_nosym(name_fn=None, name_target=None, addr=None) -> list:
-    mem = check_opt.kallsyms_lookup_symbols('kmem_cache_alloc')[1]
+    print(f"{name_target}: {hex(addr)}")
+    if addr not in kmem_cache and addr:
+        kmem_cache.append(addr)
 
-    if addr:
-        kmem_cache.append(mem)
+def init_kmem_cache_free(name_fn=None, name_target=None, addr=None) -> list:
+    print(f"{name_target}: {hex(addr)}")
+    if addr in kmem_cache and addr:
+        kmem_cache.remove(addr)
 
-    check_opt.RawBreakpoint(mem, init_kmem_cache_nosym, 'kmem_cache_alloc', 'kmem_cache', '$rdi')
-    gdb.execute('continue')
+#===
+
+def _full_kmem_cache_init_nosym():
+    global kmem_cache
+
+    slab_caches_t = gdb.lookup_type(f'struct list_head').pointer()
+
+    kmem_cache.clear()
+    kmem_cache = valid_kmem_cache()
+    slab_caches = list_head_kmem_cache(kmem_cache, offt=0)
+
+    offt_list_head = slab_caches - kmem_cache
+    beg = slab_caches
+
+    while beg != slab_caches.cast(slab_caches_t)['next']:
+        kmem_cache.append(int(slab_caches['next']) - offt_list_head)
+        slab_caches = slab_caches['next'].cast(slab_caches_t)
+
+    return kmem_cache
 
 def init_kmem_cache(sym=False):
-    if len(kmem_cache):
-        return kmem_cache
+    if len(kmem_cache) and not sym:
+        return _full_kmem_cache_init_nosym()
     if sym:
         _ = [kmem_cache.append(r) for r in init_kmem_cache_sym()]
         return kmem_cache
 
-    print("Warning: This technique is efficient only if you're currently at the begin of the execution of the kernel")
-    print('Wait a few seconds and hit ctrl+c to start kheap with the right kmem_cache array')
-    return init_kmem_cache_nosym()
+    print("Warning: This technique is efficient only if you're currently at the begin of the kernel execution")
+    print('Hit continue and right after hit ctrl+c to start kheap analysis with the right kmem_cache array')
+    check_opt.RawBreakpoint(check_opt.kallsyms_lookup_symbols('__kmem_cache_create')[1], init_kmem_cache_nosym, 'kmem_cache_alloc', 'kmem_cache', '$rdi')
+    check_opt.RawBreakpoint(check_opt.kallsyms_lookup_symbols('kmem_cache_destroy')[1], init_kmem_cache_free, 'kmem_cache_destroy', 'kmem_cache', '$rdi')
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=
 
@@ -503,6 +595,7 @@ class kheap(GenericCommand):
             _ = [info_kmemcache(f) for f in kmem_cache]
         elif argv[0] == "analysis":
             init_kmem_cache(sym=DEBUG)
+            print(kmem_cache)
             # check_options()
         elif argv[0] == "help":
             help()

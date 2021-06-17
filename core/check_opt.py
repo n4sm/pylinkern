@@ -31,7 +31,6 @@ class RawBreakpoint(gdb.Breakpoint):
 
     def stop(self):
         self.callback(self.name_fn, self.name_target, int(gdb.parse_and_eval(self.reg_arg).cast(gdb.lookup_type('unsigned long'))))
-        gdb.Breakpoint.delete()
 
 # =-=-=-=-=-=-=-=-=-=-=-=--
 
