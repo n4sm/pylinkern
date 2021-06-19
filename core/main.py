@@ -113,19 +113,20 @@ def dump_pagecpu_active(page):
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
-def valid_kmem_cache(mem):
+def _valid_kmem_cache(mem):
     cast_mem = gdb.Value(mem).cast(gdb.lookup_type('struct kmem_cache').pointer())
     for name, field in gdb.types.deep_items(gdb.lookup_type('struct kmem_cache')):
-        if field.type.code == gdb.TYPE_CODE_PTR and not check_opt.is_kptr(cast_mem[name]) and name != 'cpu_slab':
-            return False
+        if field.type.code == gdb.TYPE_CODE_PTR and int(cast_mem[name]) != 0 and name != 'cpu_slab':
+            if not check_opt.is_kptr(cast_mem[name]):
+                return False
     return True
 
-def valid_kmem_cache() -> int:
+def find_valid_kmem_cache() -> int:
     """
     returns the address of a valid kmem_cache
     """
 
-    return [int(cache) for cache in kmem_cache if valid_kmem_cache(cache)][0]
+    return [int(cache) for cache in kmem_cache if _valid_kmem_cache(cache)][0]
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
@@ -150,7 +151,7 @@ def info_kmemcache(mem):
     kmem_cache_t = gdb.lookup_type(f'struct kmem_cache').pointer()
     kmem_cache = gdb.Value(mem).cast(kmem_cache_t)
 
-    if not valid_kmem_cache(mem):
+    if not _valid_kmem_cache(mem):
         print(f"{hex(mem)} is not a valid kmem_cache")
         return -1
 
@@ -404,7 +405,7 @@ def is_list_head(mem) -> bool:
     
     return False
 
-def is_list_head_kmem(mem, direction='next') -> bool:
+def is_list_head_kmem(mem) -> bool:
     """
     address of the list_head to test
     returns a boolean, True if all the sanity checks succeed else False
@@ -413,13 +414,11 @@ def is_list_head_kmem(mem, direction='next') -> bool:
     curr = gdb.Value(mem).cast(list_head_t)
     beg = mem
 
-    if is_list_head(curr):
+    if is_list_head(int(curr)):
         while True:
-            if is_list_head(curr[direction]):
-                curr = curr[direction].cast(list_head_t)
-                if int(curr) is beg and direction == 'next':
-                    return is_list_head_kmem(mem, direction='prev')
-                elif int(curr) is beg and direction == 'prev':
+            if is_list_head(int(curr['next'])):
+                curr = curr['next'].cast(list_head_t)
+                if int(curr) == beg:
                     return True
             else:
                 break
@@ -432,11 +431,15 @@ def list_head_kmem_cache(mem, offt=0) -> int:
     returns the address of the list_head field
     """
 
-    if not is_list_head_kmem(mem):
-        # aligned on 4 bytes (more reliable)
-        return list_head_kmem_cache(mem+offt, offt=offt+1)
+    if offt > 1024:
+        return False
 
-    return mem
+    if not is_list_head_kmem(mem+offt):
+        print(f"trying on {hex(mem)}")
+        # aligned on 4 bytes (more reliable)
+        return list_head_kmem_cache(mem, offt=offt+4)
+
+    return mem+offt
 
 # =-=-=-=-=-=-=-=-=-=-=-=
 
@@ -476,21 +479,29 @@ def _full_kmem_cache_init_nosym():
 
     slab_caches_t = gdb.lookup_type(f'struct list_head').pointer()
 
+    valid_kmem_cache = find_valid_kmem_cache()
+    slab_caches = list_head_kmem_cache(valid_kmem_cache, offt=0)
     kmem_cache.clear()
-    kmem_cache = valid_kmem_cache()
-    slab_caches = list_head_kmem_cache(kmem_cache, offt=0)
 
-    offt_list_head = slab_caches - kmem_cache
+    offt_list_head = slab_caches - valid_kmem_cache
     beg = slab_caches
+    slab_caches = gdb.Value(slab_caches).cast(slab_caches_t)
 
-    while beg != slab_caches.cast(slab_caches_t)['next']:
-        kmem_cache.append(int(slab_caches['next']) - offt_list_head)
-        slab_caches = slab_caches['next'].cast(slab_caches_t)
+    while beg != int(slab_caches['next']):
+        if _valid_kmem_cache(int(slab_caches['next']) - offt_list_head):
+            kmem_cache.append(int(slab_caches['next']) - offt_list_head)
+        slab_caches = gdb.Value(slab_caches['next']).cast(slab_caches_t)
 
     return kmem_cache
 
+def clean_kmem_cache():
+    for cache in kmem_cache:
+        if not _valid_kmem_cache(cache):
+            kmem_cache.remove(cache)
+
 def init_kmem_cache(sym=False):
     if len(kmem_cache) and not sym:
+        clean_kmem_cache()
         return _full_kmem_cache_init_nosym()
     if sym:
         _ = [kmem_cache.append(r) for r in init_kmem_cache_sym()]
