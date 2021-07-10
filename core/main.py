@@ -524,8 +524,9 @@ def check_options():
 # =-=-=-=-=-=-=-=-=-=-=-=-=
 
 def help():
-    print(f'kheap [kmem_cache|chunk|kmem_cache_cpu] addr:\tPrints informations about a particular struct')
-    print(f'kheap [kmem_cache|analysis|help]:\t\t\tPrints all the kmem_cache or analyses automatically some structures like kmem_cache')
+    print(f'kheap [chunk|kmem_cache_cpu] addr:\t\tPrints informations about a particular struct')
+    print(f'kheap [kmem_cache|analysis|help]:\t\tPrints all the kmem_cache or analyses automatically some structures like kmem_cache')
+    print(f'kheap [set sym] true/false:\t\t\tEnable or disable symbols support')
 
 # We keep this code, who knows ?
 
@@ -592,6 +593,7 @@ class kheap(GenericCommand):
 
     def __init__(self) -> None:
         super().__init__()
+        self.debug = False
         # kfreeBP('kfree', internal=True)
 
     @only_if_gdb_running # not required, ensures that the debug session is started
@@ -605,9 +607,12 @@ class kheap(GenericCommand):
         elif argv[0] == "kmem_cache":
             _ = [info_kmemcache(f) for f in kmem_cache]
         elif argv[0] == "analysis":
-            init_kmem_cache(sym=DEBUG)
-            print(kmem_cache)
-            # check_options()
+            init_kmem_cache(sym=self.debug)
+        elif argv[0] == "set" and argv[1] == "sym":
+            if argv[2] == "true":
+                self.debug = True
+            elif argv[2] == "false":
+                self.debug = False
         elif argv[0] == "help":
             help()
 
