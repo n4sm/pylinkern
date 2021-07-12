@@ -5,6 +5,7 @@ export CONF_LINUX_BZIMAGE=$(CONF_LINUX_BUILD)/out/bzImage
 export CONF_LINUX_SYSTEMMAP=$(CONF_LINUX_BUILD)/out/System.map
 
 export CONF_LINUX_ARCH=x86
+# edit these two fields to target another kernel
 export CONF_LINUX_ARCHIVE=linux-5.9.3.tar.gz
 export CONF_LINUX_URL=https://cdn.kernel.org/pub/linux/kernel/v5.x/$(CONF_LINUX_ARCHIVE)
 export CONF_CPUS=4
