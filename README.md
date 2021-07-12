@@ -36,6 +36,7 @@ kheap [kmem_cache|analysis|help]:               Prints all the kmem_cache or ana
 kheap [set sym] true/false:                     Enable or disable symbols support
 gef➤  kheap set sym true
 gef➤  kheap analysis
+gef➤  kheap kmem_cache
 ...
 --=-=-= kmem_cache =-=-=--
 Name: kmem_cache
