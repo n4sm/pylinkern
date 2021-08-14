@@ -593,6 +593,7 @@ class kheap(GenericCommand):
 
     def __init__(self) -> None:
         super().__init__()
+        gdb.execute("set scheduler-locking on")
         self.debug = False
         # kfreeBP('kfree', internal=True)
 
